@@ -1,1 +1,1 @@
-# DiscordRAT
+# SystemInformator
