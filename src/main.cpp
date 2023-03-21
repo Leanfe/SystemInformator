@@ -20,6 +20,31 @@
 #define NO_RIGHTS 3
 
 /**
+ * Массив-мусорка, в которую скинется информация о системе из LINUX.
+ */
+static char *info_array[4];
+
+/**
+ * Простая функция, нужна чтобы выделить память массиву.
+ */
+void mallocArray() {
+    for (auto & i : info_array) {
+        i = (char*) malloc(BUFSIZ);
+    }
+}
+
+/**
+ * Простая функция, нужна чтобы освободить память после использования.
+ */
+void freeArray() {
+    for (auto & i : info_array) {
+        free(i);
+    }
+
+    free(*info_array);
+}
+
+/**
  * Функция проверяет есть-ли права администратора у процесса, или нет.
  * @return EXIT_FAILURE/EXIT_SUCCESS
  */
@@ -30,13 +55,19 @@ static bool checkAdmin();
  * @param command команда для передачи.
  * @return EXIT_FAILURE -> Ошибка во время выполнения; EXIT_SUCCESS -> Всё прошло успешно.
  */
-bool processCommand(char* command);
+std::string processCommand(char* command);
 
 /**
  * Выводит информацию о системе на стандартный вывод.
  * @return EXIT_SUCCESS -> Если всё прошло успешно; EXIT_FAILURE -> Произошла ошибка.
  */
 bool getInformation();
+
+/**
+ * Функция, которая нужна только под LINUX, чтобы получить всю информацию о системе.
+ * Пишет информацию в info_array;
+ */
+void collect_system_info();
 
 /**
  * Точка входа в программу.
@@ -55,15 +86,17 @@ int main(int argc, char** argv) {
         if (opt == 'i') {
             return getInformation();
         }else if(opt == 'c') {
-            return processCommand(optarg);
+            std::cout << processCommand(optarg) << std::endl;
+            return EXIT_SUCCESS;
         }
     }
 
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
 }
 
 static bool checkAdmin() {
     bool result = false;
+    
     #ifdef LINUX
     auto me = getuid();
     auto myprivs = geteuid();
@@ -87,9 +120,81 @@ static bool checkAdmin() {
 }
 
 bool getInformation() {
-    return EXIT_SUCCESS;
+    #ifdef LINUX
+        mallocArray();
+        collect_system_info();
+        for (auto &i : info_array) {
+            printf("%s\n", i);
+        }
+        freeArray();
+
+        return EXIT_SUCCESS;
+    #elif WIN32
+        std::cout << processCommand("systeminfo") << std::endl;
+
+        return EXIT_SUCCESS;
+    #endif
 }
 
-bool processCommand(char* command) {
-    return EXIT_SUCCESS;
+std::string processCommand(char* command) {
+    char buffer[BUFSIZ];
+    std::string result;
+
+    FILE* pipe = popen(command, "r");
+
+    if (!pipe) throw std::runtime_error("popen() failed!");
+
+    try {
+        while (fgets(buffer, sizeof buffer, pipe) != nullptr) {
+            result += buffer;
+        }
+    } catch (...) {
+        pclose(pipe);
+        exit(EXIT_FAILURE);
+    }
+    pclose(pipe);
+
+    return result;
+}
+
+void collect_system_info() {
+    char buffer[BUFSIZ];
+
+    // Get hostname and add it to the info array
+    if (gethostname(buffer, BUFSIZ) == 0) {
+        sprintf(info_array[0], "Hostname: %s", buffer);
+    }
+
+    // Get operating system information and add it to the info array
+    if (system("uname -a > tmp.txt") == 0) {
+        FILE *fp = fopen("tmp.txt", "r");
+        if (fp != nullptr) {
+            fgets(buffer, BUFSIZ, fp);
+            sprintf(info_array[1], "Operating System: %s", buffer);
+            fclose(fp);
+        }
+        remove("tmp.txt");
+    }
+
+    // Get CPU information and add it to the info array
+    if (system("cat /proc/cpuinfo > tmp.txt") == 0) {
+        FILE *fp = fopen("tmp.txt", "r");
+        if (fp != nullptr) {
+            fgets(buffer, BUFSIZ, fp);
+            sprintf(info_array[2], "CPU Information: %s", buffer);
+            fclose(fp);
+        }
+        remove("tmp.txt");
+    }
+
+    // Get memory information and add it to the info array
+    if (system("cat /proc/meminfo > tmp.txt") == 0) {
+        FILE *fp = fopen("tmp.txt", "r");
+        if (fp != nullptr) {
+            fgets(buffer, BUFSIZ, fp);
+            sprintf(info_array[3], "Memory Information: %s", buffer);
+            fclose(fp);
+        }
+        remove("tmp.txt");
+    }
 }
